@@ -57,3 +57,12 @@ def send_telegram(message):
     payload = {
         "chat_id": chat_id,
         "text": message,
+        "disable_web_page_preview": True
+    }
+    requests.post(url, json=payload)
+
+if __name__ == "__main__":
+    url = get_week_url()
+    message = scrape_codes(url)
+    print(message)
+    send_telegram(message)
