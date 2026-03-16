@@ -2,9 +2,8 @@ name: MTR Instant Reward Scraper
 
 on:
   schedule:
-    # 港鐵即時賞：星期一、三、五 早上 8:05 HKT（UTC+8 即 UTC 00:05）
-    - cron: "5 0 * * 1,3,5"
-  workflow_dispatch: # 可以手動觸發
+    - cron: "35 23 * * 0"
+  workflow_dispatch:
 
 jobs:
   scrape:
