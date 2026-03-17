@@ -1,11 +1,13 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import re
 import os
 
+HKT = timezone(timedelta(hours=8))
+
 def get_week_url():
-    today = datetime.now()
+    today = datetime.now(HKT)
     year = today.strftime("%Y")
     month = today.strftime("%m")
     day = today.day
@@ -35,16 +37,15 @@ def scrape(url):
     if not matches:
         return f"⚠️ 暫時未能 parse 到答案，請直接睇：{url}"
 
-    today = datetime.now()
+    today = datetime.now(HKT)
     weekdays = {0:"一", 1:"二", 2:"三", 3:"四", 4:"五", 5:"六", 6:"日"}
     is_monday = today.weekday() == 0
 
     if is_monday:
-        # 星期一：發全週三日
         lines = ["🚇 港鐵即時賞本週答案\n"]
         for month, day, answer, code in matches:
             try:
-                date = datetime(today.year, int(month), int(day))
+                date = datetime(today.year, int(month), int(day), tzinfo=HKT)
                 wd = weekdays[date.weekday()]
                 date_str = f"{int(month)}/{int(day)}（{wd}）"
             except:
@@ -53,10 +54,9 @@ def scrape(url):
         return "\n".join(lines)
 
     else:
-        # 星期三、五：只發當日
         for month, day, answer, code in matches:
             try:
-                date = datetime(today.year, int(month), int(day))
+                date = datetime(today.year, int(month), int(day), tzinfo=HKT)
             except:
                 continue
             if date.date() == today.date():
