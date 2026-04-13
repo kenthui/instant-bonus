@@ -2,7 +2,7 @@ name: MTR Instant Reward Scraper
 
 on:
   schedule:
-    - cron: "25 23 * * 0"
+    - cron: "45 23 * * 0"
     - cron: "05 15 * * 2"
     - cron: "05 15 * * 4"
   workflow_dispatch:
