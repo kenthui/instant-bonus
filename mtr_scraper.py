@@ -9,7 +9,7 @@ HKT = timezone(timedelta(hours=8))
 
 def get_week_url():
     today = datetime.now(HKT)
-    days_since_monday = (today.weekday() + 1) % 7
+    days_since_monday = today.weekday()
     monday = today - timedelta(days=days_since_monday)
     week_start_day = monday.day
     if week_start_day <= 7: week = 1
