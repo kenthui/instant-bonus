@@ -28,7 +28,7 @@ def scrape_content(text):
     soup = BeautifulSoup(text, "html.parser")
     content = soup.find("div", class_="entry-content")
     text_content = content.get_text(separator="\n", strip=True)
-    pattern = re.compile(r"(\d+)月(\d+)日\s*答案\s*\(([A-E])\)\s*[「「]([A-Za-z0-9]+)[」」]")
+    pattern = re.compile(r"(\d+)月(\d+)日\s*答案[：:]?\s*[\(（]?([A-E])[\)）]?\s*[，,]?\s*(?:推廣代碼[：:]?\s*)?[「『\"]?([A-Za-z0-9]+)[」』\"]?",re.UNICODE)
     return pattern.findall(text_content)
 
 def scrape_with_retry(url, max_retries=3):
