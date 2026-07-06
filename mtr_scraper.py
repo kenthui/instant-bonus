@@ -11,18 +11,9 @@ def get_week_url():
     today = datetime.now(HKT)
     days_since_monday = today.weekday()
     monday = today - timedelta(days=days_since_monday)
-    week_start_day = monday.day
 
-    if week_start_day <= 7:
-        week = 1
-    elif week_start_day <= 14:
-        week = 2
-    elif week_start_day <= 21:
-        week = 3
-    elif week_start_day <= 28:
-        week = 4
-    else:
-        week = 5
+    first_day = monday.replace(day=1)
+    week = ((monday.day + first_day.weekday() - 1) // 7) + 1
 
     year = monday.strftime("%Y")
     month = monday.strftime("%m")
