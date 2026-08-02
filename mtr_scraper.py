@@ -11,12 +11,29 @@ def get_week_url():
     today = datetime.now(HKT)
     days_since_monday = today.weekday()
     monday = today - timedelta(days=days_since_monday)
+    sunday = monday + timedelta(days=6)
 
-    first_day = monday.replace(day=1)
-    week = ((monday.day + first_day.weekday() - 1) // 7) + 1
+    # 用「星期內第一個屬於該月份嘅日子」決定 week
+    # 例如 2026-08-03 至 2026-08-09，第一個屬於 8 月嘅日子係 8/3，所以係第 1 週
+    if monday.month == sunday.month:
+        target_date = monday
+    else:
+        target_date = sunday
 
-    year = monday.strftime("%Y")
-    month = monday.strftime("%m")
+    day = target_date.day
+    if day <= 7:
+        week = 1
+    elif day <= 14:
+        week = 2
+    elif day <= 21:
+        week = 3
+    elif day <= 28:
+        week = 4
+    else:
+        week = 5
+
+    year = target_date.strftime("%Y")
+    month = target_date.strftime("%m")
     return f"https://jetsostation.com/mtr-mobile-{year}{month}-{week}/"
 
 def make_link(code):
