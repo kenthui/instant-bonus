@@ -9,18 +9,9 @@ HKT = timezone(timedelta(hours=8))
 
 def get_week_url():
     today = datetime.now(HKT)
-    days_since_monday = today.weekday()
-    monday = today - timedelta(days=days_since_monday)
-    sunday = monday + timedelta(days=6)
 
-    # 用「星期內第一個屬於該月份嘅日子」決定 week
-    # 例如 2026-08-03 至 2026-08-09，第一個屬於 8 月嘅日子係 8/3，所以係第 1 週
-    if monday.month == sunday.month:
-        target_date = monday
-    else:
-        target_date = sunday
-
-    day = target_date.day
+    # 用今日日期直接計 week，避免用星期一/日跨月邏輯揀錯上一週頁面
+    day = today.day
     if day <= 7:
         week = 1
     elif day <= 14:
@@ -32,8 +23,8 @@ def get_week_url():
     else:
         week = 5
 
-    year = target_date.strftime("%Y")
-    month = target_date.strftime("%m")
+    year = today.strftime("%Y")
+    month = today.strftime("%m")
     return f"https://jetsostation.com/mtr-mobile-{year}{month}-{week}/"
 
 def make_link(code):
