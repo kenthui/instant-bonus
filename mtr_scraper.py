@@ -49,18 +49,78 @@ def make_link(code):
     return f"https://link.mtrmb.mtr.com.hk/moblink/?promotioncode/?code={code}"
 
 
+def _candidate_text_blocks(soup):
+    selectors = [
+        "div.entry-content",
+        "div.post-content",
+        "div.content",
+        "article",
+        "main",
+        "div#content",
+    ]
+
+    blocks = []
+    for selector in selectors:
+        for node in soup.select(selector):
+            text = node.get_text("\n", strip=True)
+            if text:
+                blocks.append(text)
+
+    if not blocks:
+        body = soup.body or soup
+        text = body.get_text("\n", strip=True)
+        if text:
+            blocks.append(text)
+
+    return blocks
+
+
 def scrape_content(text):
     soup = BeautifulSoup(text, "html.parser")
-    content = soup.find("div", class_="entry-content")
-    if not content:
+    blocks = _candidate_text_blocks(soup)
+    if not blocks:
         return []
 
-    text_content = content.get_text(separator="\n", strip=True)
-    pattern = re.compile(
-        r"(\d+)月(\d+)日\s*答案[：:]?\s*[\(（]?([A-E])[\)）]?\s*[,，]?\s*(?:推廣代碼[：:]?\s*)?[「『\"]?([A-Za-z0-9]+)[」』\"]?",
-        re.UNICODE
-    )
-    return pattern.findall(text_content)
+    entries = []
+    for block in blocks:
+        normalized = re.sub(r"\s+", " ", block)
+
+        # Match dates and then parse the nearby text for whatever answer/code layout
+        # the page is currently using. The /site/ text is often slightly different
+        # from the original format, so we keep the search intentionally broad.
+        for match in re.finditer(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日", normalized, re.UNICODE):
+            date_start = match.end()
+            segment = normalized[date_start:date_start + 250]
+
+            answer_match = re.search(r"答案[：:]?\s*[（(]?\s*([A-E])\s*[）)]?", segment, re.UNICODE)
+            if not answer_match:
+                answer_match = re.search(r"([A-E])\s*(?:[,，]|$)", segment, re.UNICODE)
+            if not answer_match:
+                continue
+
+            answer = answer_match.group(1).upper()
+
+            code_match = re.search(
+                r"(?:推廣代碼|優惠代碼|代碼|優惠券代碼)[：:]?\s*[「『\"]?([A-Za-z0-9]+)[」』\"]?",
+                segment,
+                re.UNICODE,
+            )
+            if not code_match:
+                code_match = re.search(r"([A-Za-z0-9]{5,})", segment, re.UNICODE)
+            if not code_match:
+                continue
+
+            code = code_match.group(1).upper()
+            entries.append((match.group(1), match.group(2), answer, code))
+
+    unique = []
+    seen = set()
+    for item in entries:
+        key = tuple(item)
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
 
 
 def build_session():
@@ -100,6 +160,13 @@ def scrape_with_retry(url, max_retries=3):
                 if matches:
                     return matches
                 print("頁面存在但未見答案內容。")
+                try:
+                    text = BeautifulSoup(r.text, "html.parser").get_text("\n", strip=True)
+                    snippet = re.sub(r"\s+", " ", text)[:1200]
+                    if snippet:
+                        print(f"HTML 預覽: {snippet}")
+                except Exception:
+                    pass
 
             elif status in (403, 415):
                 print("網站阻擋咗呢個 request，唔係等15分鐘就會好。")
