@@ -7,10 +7,14 @@ import time
 
 HKT = timezone(timedelta(hours=8))
 
-def get_week_url():
-    today = datetime.now(HKT)
 
-    # 用今日日期直接計 week，避免用星期一/日跨月邏輯揀錯上一週頁面
+def get_week_url(reference_date=None):
+    today = (reference_date or datetime.now(HKT)).astimezone(HKT)
+
+    # The site groups pages by the week number in the month. Using the actual
+    # calendar date is more reliable than deriving from the Monday/Sunday cross-
+    # month boundary, which can drift to the previous week when the page is not
+    # updated yet.
     day = today.day
     if day <= 7:
         week = 1
@@ -27,8 +31,23 @@ def get_week_url():
     month = today.strftime("%m")
     return f"https://jetsostation.com/mtr-mobile-{year}{month}-{week}/"
 
+
+def get_week_urls(reference_date=None):
+    today = (reference_date or datetime.now(HKT)).astimezone(HKT)
+    urls = [get_week_url(today)]
+
+    # Some days can still show the previous week's page before the new week page
+    # is available. Check the last week only as a fallback.
+    previous_week = today - timedelta(days=7)
+    previous_url = get_week_url(previous_week)
+    if previous_url not in urls:
+        urls.append(previous_url)
+    return urls
+
+
 def make_link(code):
     return f"https://link.mtrmb.mtr.com.hk/moblink/?promotioncode/?code={code}"
+
 
 def scrape_content(text):
     soup = BeautifulSoup(text, "html.parser")
@@ -38,10 +57,11 @@ def scrape_content(text):
 
     text_content = content.get_text(separator="\n", strip=True)
     pattern = re.compile(
-        r"(\d+)月(\d+)日\s*答案[：:]?\s*[\(（]?([A-E])[\)）]?\s*[，,]?\s*(?:推廣代碼[：:]?\s*)?[「『\"]?([A-Za-z0-9]+)[」』\"]?",
+        r"(\d+)月(\d+)日\s*答案[：:]?\s*[\(（]?([A-E])[\)）]?\s*[,，]?\s*(?:推廣代碼[：:]?\s*)?[「『\"]?([A-Za-z0-9]+)[」』\"]?",
         re.UNICODE
     )
     return pattern.findall(text_content)
+
 
 def build_session():
     s = requests.Session()
@@ -62,6 +82,7 @@ def build_session():
         "Upgrade-Insecure-Requests": "1",
     })
     return s
+
 
 def scrape_with_retry(url, max_retries=3):
     session = build_session()
@@ -99,6 +120,7 @@ def scrape_with_retry(url, max_retries=3):
             time.sleep(300)
 
     return []
+
 
 def scrape(url):
     matches = scrape_with_retry(url)
@@ -138,6 +160,7 @@ def scrape(url):
 
     return f"⚠️ 今日（{today.month}/{today.day}）答案未找到，請直接睇：{url}"
 
+
 def send_telegram(message):
     token = os.environ["TELEGRAM_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
@@ -149,8 +172,19 @@ def send_telegram(message):
     }
     requests.post(url, json=payload, timeout=20)
 
+
 if __name__ == "__main__":
-    url = get_week_url()
-    message = scrape(url)
-    print(message)
-    send_telegram(message)
+    for url in get_week_urls():
+        message = scrape(url)
+
+        # Prefer current week; if the current page is not updated yet, fall back
+        # to the previous week's page instead of sending stale content.
+        if "❌ 未找到答案" not in message and "⚠️ 今日" not in message:
+            print(message)
+            send_telegram(message)
+            break
+    else:
+        url = get_week_url()
+        message = scrape(url)
+        print(message)
+        send_telegram(message)
