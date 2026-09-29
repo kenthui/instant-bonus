@@ -68,6 +68,18 @@ def _candidate_text_blocks(soup):
     return blocks
 
 
+def extract_codes_from_links(soup):
+    """從頁面中所有 <a href=...> 嘗試抽取 query param 裡面嘅 code（後備用）。"""
+    codes = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        # 常見參數形式 code=..., promotioncode=...
+        m = re.search(r"(?:code|promotioncode)=([A-Za-z0-9\-]+)", href, re.IGNORECASE)
+        if m:
+            codes.append((m.group(1).upper(), a.get_text(" ", strip=True), a))
+    return codes
+
+
 def scrape_content(text):
     soup = BeautifulSoup(text, "html.parser")
     blocks = _candidate_text_blocks(soup)
@@ -75,45 +87,130 @@ def scrape_content(text):
         return []
 
     entries = []
+    seen = set()
+
+    # 日期 / 答案 / code patterns（更寬鬆）
+    date_regex = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+    answer_patterns = [
+        re.compile(r"答案[：:]?\s*[（(]?\s*([A-E])\s*[）)]?", re.IGNORECASE),
+        re.compile(r"正確答案[：:]?\s*([A-E])", re.IGNORECASE),
+        re.compile(r"答案是\s*([A-E])", re.IGNORECASE),
+        re.compile(r"([A-E])\s*(?:[,，\)\。]|$)", re.IGNORECASE),
+    ]
+    code_patterns = [
+        re.compile(r"(?:推廣代碼|優惠代碼|代碼|優惠券代碼)[：:]\s*[「『\"]?([A-Za-z0-9\-]{3,})[」』\"]?", re.IGNORECASE),
+        re.compile(r"([A-Za-z0-9\-]{3,})"),
+    ]
+
+    # 1) 先在已存在嘅文字區塊內搜尋（原有邏輯 + 放寬）
     for block in blocks:
         normalized = re.sub(r"\s+", " ", block)
+        for m in date_regex.finditer(normalized):
+            date_start = m.end()
+            segment = normalized[date_start:date_start + 350]
 
-        # Match dates and then parse the nearby text for whatever answer/code layout
-        # the page is currently using. The /site/ text is often slightly different
-        # from the original format, so we keep the search intentionally broad.
-        for match in re.finditer(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日", normalized, re.UNICODE):
-            date_start = match.end()
-            segment = normalized[date_start:date_start + 250]
-
-            answer_match = re.search(r"答案[：:]?\s*[（(]?\s*([A-E])\s*[）)]?", segment, re.UNICODE)
-            if not answer_match:
-                answer_match = re.search(r"([A-E])\s*(?:[,，]|$)", segment, re.UNICODE)
-            if not answer_match:
+            # 找答案
+            answer = None
+            for p in answer_patterns:
+                am = p.search(segment)
+                if am:
+                    answer = am.group(1).upper()
+                    break
+            if not answer:
                 continue
 
-            answer = answer_match.group(1).upper()
-
-            code_match = re.search(
-                r"(?:推廣代碼|優惠代碼|代碼|優惠券代碼)[：:]?\s*[「『\"]?([A-Za-z0-9]+)[」』\"]?",
-                segment,
-                re.UNICODE,
-            )
-            if not code_match:
-                code_match = re.search(r"([A-Za-z0-9]{5,})", segment, re.UNICODE)
-            if not code_match:
+            # 找 code
+            code = None
+            for cp in code_patterns:
+                cm = cp.search(segment)
+                if cm:
+                    code = cm.group(1).upper()
+                    break
+            if not code:
                 continue
 
-            code = code_match.group(1).upper()
-            entries.append((match.group(1), match.group(2), answer, code))
+            item = (m.group(1), m.group(2), answer, code)
+            if item not in seen:
+                seen.add(item)
+                entries.append(item)
 
-    unique = []
-    seen = set()
-    for item in entries:
-        key = tuple(item)
-        if key not in seen:
-            seen.add(key)
-            unique.append(item)
-    return unique
+    # 2) 如果第一步無結果，試下喺 HTML 節點層次（更貼近原始標籤）搵
+    if not entries:
+        for text_node in soup.find_all(string=date_regex):
+            m = date_regex.search(str(text_node))
+            if not m:
+                continue
+            # 往上兩級嘗試取得更大上下文
+            parent = text_node.parent
+            context_nodes = [parent]
+            if parent is not None and parent.parent is not None:
+                context_nodes.append(parent.parent)
+            for node in context_nodes:
+                context = " ".join(node.stripped_strings)
+                context = re.sub(r"\s+", " ", context)
+                seg = context
+                # 答案
+                answer = None
+                for p in answer_patterns:
+                    am = p.search(seg)
+                    if am:
+                        answer = am.group(1).upper()
+                        break
+                if not answer:
+                    continue
+                # code
+                code = None
+                for cp in code_patterns:
+                    cm = cp.search(seg)
+                    if cm:
+                        code = cm.group(1).upper()
+                        break
+                if not code:
+                    # 嘗試同一 parent 下的連結（例如按鈕或 href）
+                    for a in node.find_all("a", href=True):
+                        href = a["href"]
+                        cm = re.search(r"(?:code|promotioncode)=([A-Za-z0-9\-]+)", href, re.IGNORECASE)
+                        if cm:
+                            code = cm.group(1).upper()
+                            break
+                if code:
+                    item = (m.group(1), m.group(2), answer, code)
+                    if item not in seen:
+                        seen.add(item)
+                        entries.append(item)
+
+    # 3) 再唔到，嘗試從所有連結抽 code 作為最後後備，並試配頁內任一日期或今日
+    if not entries:
+        link_codes = extract_codes_from_links(soup)
+        if link_codes:
+            # 嘗試搵最接近嘅日期（整個頁面掃一次）
+            full_text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+            m = date_regex.search(full_text)
+            # 如果搵到日期，用第一個日期配所有連結；若無，嘗試用今日日子作 fallback
+            if m:
+                month, day = m.group(1), m.group(2)
+            else:
+                # 用今天（本月/本日）作為 fallback
+                now = datetime.now(HKT)
+                month, day = str(now.month), str(now.day)
+
+            for code, link_text, a in link_codes:
+                # 嘗試喺連結附近找答案字母
+                parent_text = " ".join(a.parent.stripped_strings) if a.parent else link_text
+                ans = None
+                for p in answer_patterns:
+                    am = p.search(parent_text)
+                    if am:
+                        ans = am.group(1).upper()
+                        break
+                # 如果冇答案，就用 '?' 佔位（後續可以用 HTML 預覽比人手配對）
+                ans = ans or "?"
+                item = (month, day, ans, code)
+                if item not in seen:
+                    seen.add(item)
+                    entries.append(item)
+
+    return entries
 
 
 def build_session():
@@ -166,7 +263,7 @@ def scrape_with_retry(url, max_retries=3):
                 break
 
             elif status == 404:
-                print("頁面未發布或網址唔存在。")
+                print("頁面未發布或網址唔不存在。")
                 break
 
             else:
