@@ -33,16 +33,9 @@ def get_week_url(reference_date=None):
 
 
 def get_week_urls(reference_date=None):
+    # Do not fall back to the previous week's URL — only check the current week.
     today = (reference_date or datetime.now(HKT)).astimezone(HKT)
-    urls = [get_week_url(today)]
-
-    # Some days can still show the previous week's page before the new week page
-    # is available. Check the last week only as a fallback.
-    previous_week = today - timedelta(days=7)
-    previous_url = get_week_url(previous_week)
-    if previous_url not in urls:
-        urls.append(previous_url)
-    return urls
+    return [get_week_url(today)]
 
 
 def make_link(code):
@@ -241,17 +234,8 @@ def send_telegram(message):
 
 
 if __name__ == "__main__":
-    for url in get_week_urls():
-        message = scrape(url)
-
-        # Prefer current week; if the current page is not updated yet, fall back
-        # to the previous week's page instead of sending stale content.
-        if "❌ 未找到答案" not in message and "⚠️ 今日" not in message:
-            print(message)
-            send_telegram(message)
-            break
-    else:
-        url = get_week_url()
-        message = scrape(url)
-        print(message)
-        send_telegram(message)
+    # Only check the current week's page; do not fall back to the previous week.
+    url = get_week_url()
+    message = scrape(url)
+    print(message)
+    send_telegram(message)
